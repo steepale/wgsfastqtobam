@@ -1,0 +1,5 @@
+mkdir ./results
+mkdir ./results/fastqc_1
+mkdir ./data
+mkdir ./data/fastq
+mkdir ./scripts
