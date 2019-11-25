@@ -1,46 +1,51 @@
 #===============================================================================
 #
 #         FILE: Dockerfile
-#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data:/mount_data --name fastqc --rm ubuntu:latest
-#        USAGE: docker image build -t steepale/fastqc:1.0 . # local image build
+#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/nf-core-wgsfastqtobam:/Users/Alec/Documents/Bioinformatics/MDV_Project/nf-core-wgsfastqtobam --name gatk steepale/ubuntu_jdk:1.8.0_212
+#        USAGE: docker image build -t steepale/gatk: . # local image build
 #
-#  DESCRIPTION:  This Dockerfile will build FastQC
+#  DESCRIPTION:  This Dockerfile will build gatk
 # REQUIREMENTS:  ---
-#        NOTES:  FastQC Website: www.bioinformatics.babraham.ac.uk/projects/fastqc/
+#        NOTES:  Picard Website: https://github.com/broadinstitute/picard/releases/tag/2.20.7
 #       AUTHOR:  Alec Steep, alec.steep@gmail.com
 #  AFFILIATION:  Michigan State University (MSU), East Lansing, MI, United States
 #				         USDA ARS Avian Disease and Oncology Lab (ADOL), East Lansing, MI, United States
 #				         Technical University of Munich (TUM), Weihenstephan, Germany
 #      VERSION:  1.0
-#      CREATED:  2019.08.11
+#      CREATED:  2019.09.13
 #     REVISION:  ---
 #===============================================================================
 
 # Pull the Ubuntu OS image
-FROM ubuntu:18.04
+FROM steepale/ubuntu_jdk:1.8.0_212
 
 # Change to base directory
 WORKDIR /
 
-# Install the FastQC dependencies
+# Install the gatk dependencies
 # Note: use 'apt-cache policy <package-name>' to determine which package is installed
-RUN apt-get update \
-    && apt-get install -y sudo=1.8.21p2-3ubuntu1 \
-    && sudo apt-get install -y \
-    default-jre=2:1.11-68ubuntu1~18.04.1 \
-    wget=1.19.4-1ubuntu2.2 \
-    zip=3.0-11build1 \
-    cpanminus=1.7043-1
 
-# Install FastQC zip file in opt directory
+
+# Install picard jar file in opt directory
 WORKDIR /opt
 
-# Install FastQC, adjust permissions, & create sym link in local bin
-RUN wget https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.8.zip \
-    && unzip fastqc_v0.11.8.zip \
-    && rm fastqc_v0.11.8.zip \
-    && chmod 755 /opt/FastQC/fastqc \
-    && ln -s /opt/FastQC/fastqc /usr/local/bin/fastqc
+# Install picard
+RUN git clone https://github.com/broadinstitute/picard.git \
+    && cd picard \
+    && ./gradlew shadowJar \
+    && chmod 755 /opt/picard/build/libs/picard.jar
+
+RUN mkdir /opt/gatk3.5
+
+# Install gatk zip file in opt directory
+WORKDIR /opt/gatk3.5
+
+# Install gatk zip file in opt directory
+# GATK3.5 needed to be interactively installed: https://software.broadinstitute.org/gatk/download/archive
+RUN bzip2 -d GenomeAnalysisTK-3.5-0-g36282e4.tar.bz2 \
+    && tar xvf GenomeAnalysisTK-3.5-0-g36282e4.tar \
+    && rm GenomeAnalysisTK-3.5-0-g36282e4.tar \
+    && chmod 755 /opt/gatk3.5/GenomeAnalysisTK.jar
 
 # Back to the working directory
 WORKDIR /

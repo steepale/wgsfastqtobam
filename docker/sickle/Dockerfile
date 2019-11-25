@@ -1,12 +1,12 @@
 #===============================================================================
 #
 #         FILE: Dockerfile
-#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data:/mount_data --name fastqc --rm ubuntu:latest
-#        USAGE: docker image build -t steepale/fastqc:1.0 . # local image build
+#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data:/Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data --name sickle --rm ubuntu:latest
+#        USAGE: docker image build -t steepale/sickle:1.0 . # local image build
 #
-#  DESCRIPTION:  This Dockerfile will build FastQC
+#  DESCRIPTION:  This Dockerfile will build sickle
 # REQUIREMENTS:  ---
-#        NOTES:  FastQC Website: www.bioinformatics.babraham.ac.uk/projects/fastqc/
+#        NOTES:  sickle Website: https://sickle.readthedocs.io/en/latest/installation.html
 #       AUTHOR:  Alec Steep, alec.steep@gmail.com
 #  AFFILIATION:  Michigan State University (MSU), East Lansing, MI, United States
 #				         USDA ARS Avian Disease and Oncology Lab (ADOL), East Lansing, MI, United States
@@ -22,25 +22,37 @@ FROM ubuntu:18.04
 # Change to base directory
 WORKDIR /
 
-# Install the FastQC dependencies
+# Install the sickle dependencies
 # Note: use 'apt-cache policy <package-name>' to determine which package is installed
 RUN apt-get update \
-    && apt-get install -y sudo=1.8.21p2-3ubuntu1 \
+    && apt-get install -y sudo \
     && sudo apt-get install -y \
-    default-jre=2:1.11-68ubuntu1~18.04.1 \
-    wget=1.19.4-1ubuntu2.2 \
-    zip=3.0-11build1 \
-    cpanminus=1.7043-1
+    wget \
+    zip \
+    cpanminus \
+    build-essential \
+    git
 
-# Install FastQC zip file in opt directory
+# Install zlib zip file in opt directory
 WORKDIR /opt
 
-# Install FastQC, adjust permissions, & create sym link in local bin
-RUN wget https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.8.zip \
-    && unzip fastqc_v0.11.8.zip \
-    && rm fastqc_v0.11.8.zip \
-    && chmod 755 /opt/FastQC/fastqc \
-    && ln -s /opt/FastQC/fastqc /usr/local/bin/fastqc
+# Install zlib
+RUN wget http://zlib.net/zlib-1.2.11.tar.gz \
+    && tar xvzf zlib-1.2.11.tar.gz \
+    && rm zlib-1.2.11.tar.gz \
+    && cd zlib-1.2.11 \
+    && ./configure \
+    && make test \
+    && make install
+
+# Install sickle zip file in opt directory
+WORKDIR /opt
+# Install sickle zip file in opt directory
+RUN git clone https://github.com/najoshi/sickle.git \
+    && cd sickle \
+    && make \
+    && chmod 755 /opt/sickle/sickle \
+    && ln -s /opt/sickle/sickle /usr/local/bin/sickle
 
 # Back to the working directory
 WORKDIR /

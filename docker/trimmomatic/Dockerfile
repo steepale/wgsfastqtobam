@@ -1,18 +1,18 @@
 #===============================================================================
 #
 #         FILE: Dockerfile
-#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data:/mount_data --name fastqc --rm ubuntu:latest
-#        USAGE: docker image build -t steepale/fastqc:1.0 . # local image build
+#    DEV USAGE: docker run -it -v /Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data:/Users/Alec/Documents/Bioinformatics/MDV_Project/20190811_fastq2bam_steep/data --name trimmomatic --rm steepale/trimmomatic/1.0
+#        USAGE: docker image build -t steepale/trimmomatic:1.0 . # local image build
 #
-#  DESCRIPTION:  This Dockerfile will build FastQC
+#  DESCRIPTION:  This Dockerfile will build trimmomatic
 # REQUIREMENTS:  ---
-#        NOTES:  FastQC Website: www.bioinformatics.babraham.ac.uk/projects/fastqc/
+#        NOTES:  Trimmomatic Website: http://www.usadellab.org/cms/?page=trimmomatic
 #       AUTHOR:  Alec Steep, alec.steep@gmail.com
 #  AFFILIATION:  Michigan State University (MSU), East Lansing, MI, United States
 #				         USDA ARS Avian Disease and Oncology Lab (ADOL), East Lansing, MI, United States
 #				         Technical University of Munich (TUM), Weihenstephan, Germany
 #      VERSION:  1.0
-#      CREATED:  2019.08.11
+#      CREATED:  2019.09.12
 #     REVISION:  ---
 #===============================================================================
 
@@ -22,25 +22,27 @@ FROM ubuntu:18.04
 # Change to base directory
 WORKDIR /
 
-# Install the FastQC dependencies
+# Install the Trimmomatic dependencies
 # Note: use 'apt-cache policy <package-name>' to determine which package is installed
 RUN apt-get update \
-    && apt-get install -y sudo=1.8.21p2-3ubuntu1 \
+    && apt-get install -y sudo \
     && sudo apt-get install -y \
-    default-jre=2:1.11-68ubuntu1~18.04.1 \
-    wget=1.19.4-1ubuntu2.2 \
-    zip=3.0-11build1 \
-    cpanminus=1.7043-1
+    default-jre \
+    wget \
+    vim \
+    less \
+    zip \
+    cpanminus
 
-# Install FastQC zip file in opt directory
+# Install trimmomatic file in opt directory
 WORKDIR /opt
 
-# Install FastQC, adjust permissions, & create sym link in local bin
-RUN wget https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.8.zip \
-    && unzip fastqc_v0.11.8.zip \
-    && rm fastqc_v0.11.8.zip \
-    && chmod 755 /opt/FastQC/fastqc \
-    && ln -s /opt/FastQC/fastqc /usr/local/bin/fastqc
+# Install Trimmomatic, adjust permissions, & create sym link in local bin
+RUN wget http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.39.zip \
+    && unzip Trimmomatic-0.39.zip \
+    && rm Trimmomatic-0.39.zip \
+    && chmod 755 /opt/Trimmomatic-0.39/trimmomatic-0.39.jar \
+    && ln -s /opt/Trimmomatic-0.39/trimmomatic-0.39.jar /usr/local/bin/trimmomatic.jar
 
 # Back to the working directory
 WORKDIR /

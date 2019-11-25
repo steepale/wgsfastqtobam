@@ -88,6 +88,8 @@ Channel
     }
     .set{manifest_ch}
 
+(manifest_ch1, manifest_ch2, manifest_ch3, manifest_ch4) = manifest_ch.into(4)
+
 /*
  * STEP: Perform fastqc analysis
  */
@@ -136,7 +138,7 @@ read_pairs_trimmomatic = Channel.fromFilePairs(params.reads, flat: true)
 process trimmomatic {
     cache true
     container "steepale/trimmomatic:1.0"
-    publishDir "${params.workdir}/test", mode: 'copy'
+    //publishDir "${params.workdir}/test", mode: 'copy'
     if (params.echo) {
         echo true
     }
@@ -146,7 +148,7 @@ process trimmomatic {
     // set val(sample_id), val(barcode), val(lane), val(suffix), val(sample_label), val(type) from manifest_ch
 
     output:
-    file "*paired.fastq.gz" into trimmomatic_ch_out
+    file "*.fastq.gz" into trimmomatic_ch_out
 
     // conditional to skip prcoess if needed
     when:
@@ -160,10 +162,10 @@ process trimmomatic {
     -threads 2 \
     ${read1} \
     ${read2} \
-    ${read1.baseName}_paired.fastq.gz \
-    ${read1.baseName}_unpaired.fastq.gz \
-    ${read2.baseName}_paired.fastq.gz \
-    ${read2.baseName}_unpaired.fastq.gz \
+    ${read1.simpleName}_paired.fastq.gz \
+    ${read1.simpleName}_unpaired.fastq.gz \
+    ${read2.simpleName}_paired.fastq.gz \
+    ${read2.simpleName}_unpaired.fastq.gz \
     ILLUMINACLIP:/opt/Trimmomatic-0.39/adapters/TruSeq2-PE.fa:2:30:10 \
     HEADCROP:9
     """
@@ -173,9 +175,10 @@ process trimmomatic {
  * STEP: Trim reads with Sickle
  */
 
-// Mix the output channel from trimmomatic into sickle
+// Seperate the output channel from trimmomatic into sickle
+(trim_ch1, trim_ch2, trim_ch3, trim_ch4) = trimmomatic_ch_out.into(4)
 
-// Perform adapter trimming with trimmomatic
+// Perform read trimming with sickle
 process sickle {
     cache true
     container "steepale/sickle:1.0"
@@ -185,11 +188,13 @@ process sickle {
     }
 
     input:
-    set pair_id, file(read1), file(read2) from read_pairs_sickle
-    // set val(sample_id), val(barcode), val(lane), val(suffix), val(sample_label), val(type) from manifest_ch
+    file(read1_paired) from trim_ch1.flatten().filter( ~/.*R1.*_paired.fastq.gz/ )
+    file(read2_paired) from trim_ch2.flatten().filter( ~/.*R2.*_paired.fastq.gz/ )
+    file(read1_unpaired) from trim_ch3.flatten().filter( ~/.*R1.*_unpaired.fastq.gz/ )
+    file(read2_unpaired) from trim_ch4.flatten().filter( ~/.*R2.*_unpaired.fastq.gz/ )
 
     output:
-    file "*paired.fastq.gz" into sickle_ch_out
+    file "*_sickle.fastq" into sickle_out_ch
 
     // conditional to skip prcoess if needed
     when:
@@ -198,31 +203,214 @@ process sickle {
     script:
     """
     ### Perform fastqc on all fastq files
-    java -jar /opt/sickle-0.39/sickle-0.39.jar \
-    PE \
-    -threads 2 \
-    ${read1} \
-    ${read2} \
-    ${read1.baseName}_paired.fastq.gz \
-    ${read1.baseName}_unpaired.fastq.gz \
-    ${read2.baseName}_paired.fastq.gz \
-    ${read2.baseName}_unpaired.fastq.gz \
-    ILLUMINACLIP:/opt/sickle-0.39/adapters/TruSeq2-PE.fa:2:30:10 \
-    HEADCROP:9
+    echo "read1_paired: ${read1_paired}"
+    echo "read2_paired: ${read2_paired}"
+    echo "read1_unpaired: ${read1_unpaired}"
+    echo "read2_unpaired: ${read2_unpaired}"
+    # Trim the paired reads
+    sickle pe -f ${read1_paired} \
+    -r ${read2_paired} \
+    -t sanger \
+    -o ${read1_paired.simpleName}_sickle.fastq \
+    -p ${read2_paired.simpleName}_sickle.fastq \
+    -s singles_PE_sickle.fastq \
+    -q 20 -l 50 -g
+    """
+}
+
+/*
+ * STEP: Perform mapping with bwa
+ */
+
+// Split the sickle output
+(sic_ch1, sic_ch2) = sickle_out_ch.into(2)
+ref_bwa_ch1 = Channel.from(file(params.genome))
+ref_bwa_ch2 = Channel.fromPath("${params.genome_dir}/*{amb,ann,bwt,pac,sa}").collect()
+//(ref_bwa_ch1, ref_bwa_ch2) = ref_bwa_ch.into(2)
+
+// Perform read alignment with bwa
+process bwa {
+    cache true
+    container "steepale/bwa:1.0"
+    publishDir "${params.workdir}/test", mode: 'copy'
+    if (params.echo) {
+        echo true
+    }
+
+    input:
+    file(read1_paired) from sic_ch1.flatten().filter( ~/.*R1.*_paired_sickle.fastq/ )
+    file(read2_paired) from sic_ch2.flatten().filter( ~/.*R2.*_paired_sickle.fastq/ )
+    //file genome from ref_bwa_ch1.flatten().filter( ~/galgal5.fa/ )
+    file genome from ref_bwa_ch1
+    file genome_all from ref_bwa_ch2.collect()
+    set val(sample_id), val(barcode), val(lane), val(suffix), val(sample_label), val(type) from manifest_ch1
+
+    output:
+    file "*.sam" into bwa_out_ch
+
+    // conditional to skip prcoess if needed
+    when:
+    !params.skip_sickle
+
+    script:
+    """
+    echo ${genome}
+    echo ${read1_paired}
+    echo ${read2_paired}
+    echo ${sample_id}
+    echo ${genome_all}
+    bwa mem \
+    -t 2 \
+    -T 20 \
+    ${genome} \
+    ${read1_paired} \
+    ${read2_paired} \
+    > ${sample_id}.sam
+    """
+}
+
+/*
+ * STEP: Add ReadGroups with Picard
+ */
+
+// Add ReadGroups with Picard
+process readgroups {
+    cache true
+    container "steepale/gatk:3.5"
+    publishDir "${params.workdir}/test", mode: 'copy'
+    if (params.echo) {
+        echo true
+    }
+
+    input:
+    val rg_mem from params.rg_mem
+    file bwa_sam from bwa_out_ch
+    set val(sample_id), val(barcode), val(lane), val(suffix), val(sample_label), val(type) from manifest_ch2
+    val platform from params.platform
+
+
+    output:
+    file "*_rg.sam" into rg_out_ch
+
+    // conditional to skip prcoess if needed
+    when:
+    !params.skip_readgroups
+
+    script:
+    """
+    echo ${rg_mem}
+    echo ${bwa_sam}
+    echo ${bwa_sam.simpleName}
+    echo ${lane}
+    echo ${sample_id}
+    echo ${type}
+
+    # Add readgroups with picard
+    java -Xmx${rg_mem} \
+    -jar /opt/picard/build/libs/picard.jar \
+    AddOrReplaceReadGroups \
+    INPUT=${bwa_sam} \
+    OUTPUT=${bwa_sam.simpleName}_${lane}_rg.sam \
+    RGID=${sample_id}_${lane} \
+    RGPL= ${platform} \
+    RGPU=${barcode}_${lane} \
+    RGSM=${sample_id} \
+    RGLB=${type}
+    """
+}
+
+/*
+ * STEP: Sort, Merge, and Realign Bam Files (by lane)
+ */
+
+// Input Channels
+ref_smr_by_lane_ch = Channel.from(file(params.genome))
+ref_smr_by_lane_ch2 = Channel.fromPath("${params.genome_dir}/*{amb,ann,bwt,pac,sa,fai,dict}").collect()
+
+// Sort, Merge, and Realign Bam Files (by lane)
+process smr_by_lane {
+    cache true
+    container "steepale/gatk:3.5"
+    publishDir "${params.workdir}/test", mode: 'copy'
+    if (params.echo) {
+        echo true
+    }
+
+    input:
+    val smr_by_lane_mem from params.smr_by_lane_mem
+    file rg_sam from rg_out_ch
+    set val(sample_id), val(barcode), val(lane), val(suffix), val(sample_label), val(type) from manifest_ch3
+    file genome from ref_smr_by_lane_ch
+    file genome_ann from ref_smr_by_lane_ch2
+
+    output:
+    file "*.{bam,bai,list,txt}" into rsmr_by_lane_out_ch
+
+    // conditional to skip prcoess if needed
+    when:
+    !params.skip_smr_by_lane
+
+    script:
+    """
+    # Sort the sam file
+    java -Xmx${smr_by_lane_mem} \
+    -jar /opt/picard/build/libs/picard.jar \
+    SortSam \
+    I=${rg_sam} \
+    O=${rg_sam.baseName}.bam \
+    SORT_ORDER=coordinate
+
+    echo "Bam file sorted"
+
+    # Mark duplicates in the bam file
+	java -Xmx${smr_by_lane_mem} \
+    -jar /opt/picard/build/libs/picard.jar \
+    MarkDuplicates \
+    I=${rg_sam.baseName}.bam \
+    O=${rg_sam.baseName}_marked.bam \
+    METRICS_FILE=${rg_sam.baseName}_metrics.txt \
+    MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=1000
+
+    echo "Bam file duplicates marked"
+
+    # Build an index of bam file
+	java -Xmx${smr_by_lane_mem} \
+    -jar /opt/picard/build/libs/picard.jar \
+    BuildBamIndex \
+    I=${rg_sam.baseName}_marked.bam \
+    O=${rg_sam.baseName}_marked.bai
+
+    echo "Bam indexed"
+
+    # Create targets for indel realignment
+	java -Xmx${smr_by_lane_mem} \
+    -jar /opt/gatk3.5/GenomeAnalysisTK.jar \
+    -T RealignerTargetCreator \
+    -R ${genome} \
+    -I ${rg_sam.baseName}_marked.bam \
+    -o ${rg_sam.baseName}_intervals.list
+
+    echo "Targets created for indel relaignment"
+
+    # Realign around indels
+	java -Xmx${smr_by_lane_mem} \
+    -jar /opt/gatk3.5/GenomeAnalysisTK.jar \
+    -T IndelRealigner \
+    -R ${genome} \
+    -I ${rg_sam.baseName}_marked.bam \
+    -targetIntervals ${rg_sam.baseName}_intervals.list \
+    -o ${rg_sam.baseName}_realigned.bam
+
+    echo "Bam realigned around indels"
+
     """
 }
 
 
 
 
-
-
 /*
-fastqc \
-    -t 2 \
-    -q \
-    ${read1} \
-    ${read2}
+
  */
 
 
